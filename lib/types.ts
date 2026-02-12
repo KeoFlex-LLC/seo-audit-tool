@@ -130,6 +130,7 @@ export interface EEATSignals {
   hasTermsOfService: boolean;
   trustScore: number;           // 0-100
   signals: string[];            // human-readable list
+  sameAsLinks: string[];        // Schema.org sameAs URLs (social profiles, Knowledge Panel)
 }
 
 export interface PageBudget {

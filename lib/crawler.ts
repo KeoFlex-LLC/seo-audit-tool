@@ -21,14 +21,23 @@ export async function crawlPage(url: string, keyword?: string): Promise<PageAudi
         const targetUrl = normalizeUrl(url);
 
         // Fetch with full response headers for security analysis
-        const response = await fetch(targetUrl, {
-            headers: {
-                'User-Agent': 'KeoFlexAuditBot/1.0 (SEO Audit Tool)',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            },
-            redirect: 'follow',
-            signal: AbortSignal.timeout(30000),
-        });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+        let response: Response;
+        try {
+            response = await fetch(targetUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                },
+                redirect: 'follow',
+                signal: controller.signal,
+            });
+        } finally {
+            clearTimeout(timeoutId);
+        }
 
         const html = await response.text();
         const $ = cheerio.load(html);
@@ -586,6 +595,36 @@ async function extractEEAT($: cheerio.CheerioAPI, baseUrl: string): Promise<EEAT
         trustScore += 10;
     }
 
+    // Extract sameAs from JSON-LD structured data (Knowledge Panel signal)
+    const sameAsLinks: string[] = [];
+    $('script[type="application/ld+json"]').each((_, el) => {
+        try {
+            const data = JSON.parse($(el).html() || '');
+            const extractSameAs = (obj: Record<string, unknown>) => {
+                if (obj.sameAs) {
+                    if (Array.isArray(obj.sameAs)) {
+                        sameAsLinks.push(...obj.sameAs.filter((s): s is string => typeof s === 'string'));
+                    } else if (typeof obj.sameAs === 'string') {
+                        sameAsLinks.push(obj.sameAs);
+                    }
+                }
+            };
+            if (Array.isArray(data)) {
+                data.forEach((item) => extractSameAs(item));
+            } else {
+                extractSameAs(data);
+            }
+        } catch {
+            // Skip malformed JSON-LD
+        }
+    });
+    // Deduplicate
+    const uniqueSameAs = [...new Set(sameAsLinks)];
+    if (uniqueSameAs.length > 0) {
+        signals.push(`sameAs references: ${uniqueSameAs.length} profile(s)`);
+        trustScore += 10;
+    }
+
     trustScore = Math.min(trustScore, 100);
 
     return {
@@ -596,6 +635,7 @@ async function extractEEAT($: cheerio.CheerioAPI, baseUrl: string): Promise<EEAT
         hasTermsOfService,
         trustScore,
         signals,
+        sameAsLinks: uniqueSameAs,
     };
 }
 

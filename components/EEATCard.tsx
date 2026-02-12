@@ -47,9 +47,9 @@ export default function EEATCard({ eeat }: EEATCardProps) {
                     <div className="w-full bg-gray-200 rounded-full h-3">
                         <div
                             className={`h-3 rounded-full transition-all ${eeat.trustScore >= 80 ? 'bg-green-500' :
-                                    eeat.trustScore >= 60 ? 'bg-blue-500' :
-                                        eeat.trustScore >= 40 ? 'bg-yellow-500' :
-                                            'bg-red-500'
+                                eeat.trustScore >= 60 ? 'bg-blue-500' :
+                                    eeat.trustScore >= 40 ? 'bg-yellow-500' :
+                                        'bg-red-500'
                                 }`}
                             style={{ width: `${eeat.trustScore}%` }}
                         />
@@ -67,6 +67,41 @@ export default function EEATCard({ eeat }: EEATCardProps) {
                         </div>
                     ))}
                 </div>
+
+                {/* sameAs Schema.org Links (Knowledge Panel) */}
+                {eeat.sameAsLinks && eeat.sameAsLinks.length > 0 && (
+                    <div className="border-t pt-3 mb-4">
+                        <div className="text-xs font-medium text-muted-foreground mb-2">
+                            🔗 sameAs References ({eeat.sameAsLinks.length})
+                        </div>
+                        <div className="space-y-1">
+                            {eeat.sameAsLinks.map((link, i) => {
+                                const platform = link.includes('facebook') ? '📘 Facebook'
+                                    : link.includes('twitter') || link.includes('x.com') ? '🐦 X/Twitter'
+                                        : link.includes('linkedin') ? '💼 LinkedIn'
+                                            : link.includes('instagram') ? '📷 Instagram'
+                                                : link.includes('youtube') ? '📺 YouTube'
+                                                    : link.includes('wikipedia') ? '📖 Wikipedia'
+                                                        : link.includes('yelp') ? '⭐ Yelp'
+                                                            : '🌐 Profile';
+                                return (
+                                    <div key={i} className="flex items-center gap-2 text-xs bg-purple-50 text-purple-700 rounded px-2 py-1">
+                                        <span className="truncate flex-1">{platform}: {link}</span>
+                                        <span>✅</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+                {eeat.sameAsLinks && eeat.sameAsLinks.length === 0 && (
+                    <div className="border-t pt-3 mb-4">
+                        <div className="flex items-center gap-2 text-xs bg-red-50 text-red-600 rounded px-2 py-1.5">
+                            <span>🔗 No sameAs references found — add Schema.org sameAs to connect social profiles & boost Knowledge Panel eligibility</span>
+                            <span>❌</span>
+                        </div>
+                    </div>
+                )}
 
                 {/* Additional Trust Signals */}
                 {eeat.signals.length > 0 && (
