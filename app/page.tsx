@@ -34,10 +34,14 @@ export default function HomePage() {
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || 'Failed to start audit');
+        throw new Error(data.error || 'Failed to run audit');
       }
 
-      const { jobId } = await res.json();
+      const { jobId, report } = await res.json();
+
+      // Store the report in sessionStorage for the results page
+      sessionStorage.setItem(`audit-${jobId}`, JSON.stringify(report));
+
       router.push(`/audit/${jobId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
