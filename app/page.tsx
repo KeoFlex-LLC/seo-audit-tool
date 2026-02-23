@@ -64,7 +64,7 @@ export default function HomePage() {
           {/* Brand */}
           <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm border border-white/10 rounded-full px-4 py-1.5 mb-8">
             <Globe className="w-4 h-4 text-blue-400" />
-            <span className="text-sm text-blue-200 font-medium tracking-wide">KeoFlex Audit</span>
+            <span className="text-sm text-blue-200 font-medium tracking-wide">SEO Audit v1.1</span>
           </div>
 
           <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold text-white mb-6 leading-tight">
