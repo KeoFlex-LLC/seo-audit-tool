@@ -12,6 +12,7 @@ import {
     Wrench,
     Search,
     BarChart3,
+    FileText,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { AuditJob } from '@/lib/types';
@@ -30,6 +31,7 @@ import IndexabilityCard from '@/components/IndexabilityCard';
 import EEATCard from '@/components/EEATCard';
 import ContentCompletenessCard from '@/components/ContentCompletenessCard';
 import RankingRoadmapCard from '@/components/RankingRoadmapCard';
+import PromptGeneratorCard from '@/components/PromptGeneratorCard';
 
 interface AuditDashboardProps {
     job: AuditJob;
@@ -107,6 +109,13 @@ export default function AuditDashboard({ job }: AuditDashboardProps) {
                         >
                             <Lightbulb className="w-4 h-4" />
                             Strategy
+                        </TabsTrigger>
+                        <TabsTrigger
+                            value="prompt"
+                            className="data-[state=active]:bg-violet-600 data-[state=active]:text-white rounded-lg px-4 py-2 text-sm font-medium gap-2"
+                        >
+                            <FileText className="w-4 h-4" />
+                            AI Prompt
                         </TabsTrigger>
                     </TabsList>
 
@@ -348,6 +357,11 @@ export default function AuditDashboard({ job }: AuditDashboardProps) {
                     {/* Strategy Tab */}
                     <TabsContent value="strategy">
                         <AIInsightsCard recommendations={report.aiRecommendations} />
+                    </TabsContent>
+
+                    {/* AI Prompt Tab */}
+                    <TabsContent value="prompt">
+                        <PromptGeneratorCard report={report} />
                     </TabsContent>
                 </Tabs>
             </main>
