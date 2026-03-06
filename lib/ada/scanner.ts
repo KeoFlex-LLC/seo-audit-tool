@@ -128,8 +128,9 @@ function buildIssueCode(level: WCAGLevel, criteria: string[], ruleId: string): s
 import chromiumMin from '@sparticuz/chromium-min';
 
 // The CDN URL must match the @sparticuz/chromium-min version (143.0.4)
+// From: https://github.com/Sparticuz/chromium/releases/tag/v143.0.4
 const CHROMIUM_REMOTE_URL =
-    'https://github.com/nichochar/chromium-brotli/releases/download/v143.0.0/chromium-v143.0.0-pack.tar';
+    'https://github.com/Sparticuz/chromium/releases/download/v143.0.4/chromium-v143.0.4-pack.x64.tar';
 
 let browserInstance: Browser | null = null;
 
