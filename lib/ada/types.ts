@@ -11,6 +11,9 @@ export type POURPrinciple = 'perceivable' | 'operable' | 'understandable' | 'rob
 /** Impact severity from axe-core */
 export type ViolationImpact = 'critical' | 'serious' | 'moderate' | 'minor';
 
+/** Issue type classification (matches pa11y output) */
+export type IssueType = 'error' | 'warning' | 'notice';
+
 // --- Violation Detail Types ---
 
 /** A single DOM element that violates an axe rule */
@@ -25,6 +28,8 @@ export interface ADAViolationNode {
 export interface ADAViolation {
     id: string;               // axe rule ID, e.g. "color-contrast"
     impact: ViolationImpact;
+    type: IssueType;          // error, warning, or notice
+    code: string;             // Detailed code, e.g. "WCAG2AA.1.4.3.color-contrast"
     wcagCriteria: string[];   // ["1.4.3", "1.4.6"]
     wcagLevel: WCAGLevel;
     pourPrinciple: POURPrinciple;
@@ -36,6 +41,18 @@ export interface ADAViolation {
     seoSynergyNote?: string;  // Why this matters for SEO
 }
 
+/** Items that need manual review (axe-core "incomplete" results) */
+export interface ADAIncompleteItem {
+    id: string;
+    description: string;
+    help: string;
+    helpUrl: string;
+    impact: ViolationImpact | null;
+    nodes: ADAViolationNode[];
+    wcagCriteria: string[];
+    pourPrinciple: POURPrinciple;
+}
+
 // --- Page-Level Results ---
 
 /** Results from scanning a single page at a specific viewport */
@@ -44,12 +61,17 @@ export interface ADAPageResult {
     viewport: 'desktop' | 'mobile';
     viewportWidth: number;
     viewportHeight: number;
-    violations: ADAViolation[];
-    passCount: number;        // Number of passing checks
-    incompleteCount: number;  // Checks needing manual review
+    violations: ADAViolation[];       // Errors — definite accessibility failures
+    warnings: ADAViolation[];         // Warnings — potential issues
+    notices: ADAViolation[];          // Notices — informational best practices
+    incomplete: ADAIncompleteItem[];  // Needs manual review
+    passCount: number;                // Number of passing checks
     inapplicableCount: number;
+    totalChecksRun: number;           // Total rules evaluated
     scanDurationMs: number;
-    scannedAt: number;        // timestamp
+    scannedAt: number;                // timestamp
+    scanError?: string;               // Error message if scan failed
+    screenshotBase64?: string;        // Page screenshot after scan
 }
 
 // --- Deduplication ---
@@ -58,6 +80,8 @@ export interface ADAPageResult {
 export interface ADASiteIssue {
     ruleId: string;
     impact: ViolationImpact;
+    type: IssueType;
+    code: string;
     description: string;
     help: string;
     helpUrl: string;
@@ -78,6 +102,7 @@ export interface POURCategoryScore {
     principle: POURPrinciple;
     label: string;            // "Perceivable", "Operable", etc.
     violations: number;
+    warnings: number;
     passes: number;
     score: number;            // 0-100 within this category
 }
@@ -94,12 +119,16 @@ export interface ADAReport {
     grade: 'A' | 'B' | 'C' | 'D' | 'F';
     targetLevel: WCAGLevel;
 
-    // Violation counts
+    // Issue counts
     totalViolations: number;
+    totalWarnings: number;
+    totalNotices: number;
+    totalIncomplete: number;  // Needs manual review
     criticalCount: number;
     seriousCount: number;
     moderateCount: number;
     minorCount: number;
+    totalChecksRun: number;
 
     // Breakdowns
     pourBreakdown: POURCategoryScore[];
@@ -109,6 +138,7 @@ export interface ADAReport {
     // Meta
     scanDurationMs: number;
     legalDisclaimer: string;
+    scanErrors: string[];     // Any errors encountered during scanning
 }
 
 // --- Remediation Knowledge Base ---
@@ -130,5 +160,8 @@ export interface ADAScanConfig {
     targetLevel: WCAGLevel;
     includeDesktop: boolean;
     includeMobile: boolean;
+    includeWarnings: boolean;
+    includeNotices: boolean;
+    screenCapture: boolean;
     timeout: number;          // Per-page timeout in ms
 }

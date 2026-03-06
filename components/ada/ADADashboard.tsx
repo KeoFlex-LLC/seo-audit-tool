@@ -14,10 +14,13 @@ import {
     ChevronDown,
     ChevronRight,
     ExternalLink,
-    Link2,
     Code,
+    AlertCircle,
+    CheckCircle,
+    XCircle,
+    Monitor,
 } from 'lucide-react';
-import type { ADAReport } from '@/lib/ada/types';
+import type { ADAReport, ADASiteIssue, IssueType } from '@/lib/ada/types';
 import ComplianceGauge from './ComplianceGauge';
 import ViolationsList from './ViolationsList';
 import RemediationPanel from './RemediationPanel';
@@ -42,27 +45,58 @@ const POUR_COLORS = {
     robust: { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', icon: 'text-amber-600' },
 };
 
-type TabId = 'violations' | 'site-issues' | 'synergy';
+type TabId = 'violations' | 'warnings' | 'site-issues' | 'synergy';
 
 export default function ADADashboard({ report }: ADADashboardProps) {
     const [activeTab, setActiveTab] = useState<TabId>('violations');
 
     const synergyViolations = report.siteIssues.filter(i => i.seoSynergy);
 
-    const tabs: { id: TabId; label: string; count: number }[] = [
-        { id: 'violations', label: 'All Violations', count: report.totalViolations },
-        { id: 'site-issues', label: 'Site-Wide Issues', count: report.siteIssues.length },
-        { id: 'synergy', label: 'SEO Synergy', count: synergyViolations.length },
+    const tabs: { id: TabId; label: string; count: number; icon: typeof AlertOctagon }[] = [
+        { id: 'violations', label: 'Errors', count: report.totalViolations, icon: XCircle },
+        { id: 'warnings', label: 'Warnings', count: report.totalWarnings, icon: AlertTriangle },
+        { id: 'site-issues', label: 'Site-Wide Issues', count: report.siteIssues.length, icon: AlertCircle },
+        { id: 'synergy', label: 'SEO Synergy', count: synergyViolations.length, icon: Zap },
     ];
 
     return (
         <div className="space-y-6">
-            {/* Legal Disclaimer — always at top */}
+            {/* Scan Errors Banner */}
+            {report.scanErrors.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                    <h3 className="font-semibold text-red-800 text-sm mb-2 flex items-center gap-2">
+                        <XCircle className="w-4 h-4" />
+                        Scan Errors
+                    </h3>
+                    <div className="space-y-1">
+                        {report.scanErrors.map((err, i) => (
+                            <p key={i} className="text-sm text-red-700">{err}</p>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Legal Disclaimer */}
             <LegalDisclaimer text={report.legalDisclaimer} />
 
-            {/* Score + Summary Row */}
+            {/* Summary Stats Bar */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                {[
+                    { label: 'Errors', value: report.totalViolations, color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200' },
+                    { label: 'Warnings', value: report.totalWarnings, color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' },
+                    { label: 'Manual Review', value: report.totalIncomplete, color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-200' },
+                    { label: 'Checks Run', value: report.totalChecksRun, color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200' },
+                    { label: 'SEO Synergy', value: synergyViolations.length, color: 'text-indigo-700', bg: 'bg-indigo-50', border: 'border-indigo-200' },
+                ].map(stat => (
+                    <div key={stat.label} className={`${stat.bg} ${stat.border} border rounded-xl p-3 text-center`}>
+                        <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">{stat.label}</p>
+                    </div>
+                ))}
+            </div>
+
+            {/* Score + Severity + POUR Row */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Compliance Score Gauge */}
                 <div className="bg-white rounded-xl border border-slate-200 p-6 flex flex-col items-center justify-center">
                     <ComplianceGauge
                         score={report.complianceScore}
@@ -87,9 +121,8 @@ export default function ADADashboard({ report }: ADADashboardProps) {
                             { label: 'Moderate', count: report.moderateCount, color: 'bg-amber-400', textColor: 'text-amber-700' },
                             { label: 'Minor', count: report.minorCount, color: 'bg-blue-400', textColor: 'text-blue-700' },
                         ].map(item => {
-                            const pct = report.totalViolations > 0
-                                ? (item.count / report.totalViolations) * 100
-                                : 0;
+                            const total = report.criticalCount + report.seriousCount + report.moderateCount + report.minorCount;
+                            const pct = total > 0 ? (item.count / total) * 100 : 0;
                             return (
                                 <div key={item.label}>
                                     <div className="flex items-center justify-between text-sm mb-1">
@@ -133,7 +166,8 @@ export default function ADADashboard({ report }: ADADashboardProps) {
                                         {pour.score}%
                                     </div>
                                     <div className={`text-xs ${colors.text} opacity-75`}>
-                                        {pour.violations} issue{pour.violations !== 1 ? 's' : ''}
+                                        {pour.violations} error{pour.violations !== 1 ? 's' : ''}
+                                        {pour.warnings > 0 && ` · ${pour.warnings} warning${pour.warnings !== 1 ? 's' : ''}`}
                                     </div>
                                 </div>
                             );
@@ -145,39 +179,51 @@ export default function ADADashboard({ report }: ADADashboardProps) {
             {/* Tab Navigation */}
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                 <div className="flex border-b border-slate-200">
-                    {tabs.map(tab => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setActiveTab(tab.id)}
-                            className={`flex-1 px-4 py-3 text-sm font-medium transition-colors relative ${activeTab === tab.id
-                                    ? 'text-indigo-700 bg-indigo-50/50'
-                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-                                }`}
-                        >
-                            <span className="flex items-center justify-center gap-2">
-                                {tab.label}
-                                <span
-                                    className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-bold ${activeTab === tab.id
-                                            ? 'bg-indigo-100 text-indigo-700'
-                                            : 'bg-slate-100 text-slate-500'
-                                        }`}
-                                >
-                                    {tab.count}
+                    {tabs.map(tab => {
+                        const TabIcon = tab.icon;
+                        return (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id)}
+                                className={`flex-1 px-4 py-3 text-sm font-medium transition-colors relative ${activeTab === tab.id
+                                        ? 'text-indigo-700 bg-indigo-50/50'
+                                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                                    }`}
+                            >
+                                <span className="flex items-center justify-center gap-2">
+                                    <TabIcon className="w-3.5 h-3.5" />
+                                    {tab.label}
+                                    <span
+                                        className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-bold ${activeTab === tab.id
+                                                ? tab.count > 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
+                                                : 'bg-slate-100 text-slate-500'
+                                            }`}
+                                    >
+                                        {tab.count}
+                                    </span>
                                 </span>
-                            </span>
-                            {activeTab === tab.id && (
-                                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" />
-                            )}
-                        </button>
-                    ))}
+                                {activeTab === tab.id && (
+                                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" />
+                                )}
+                            </button>
+                        );
+                    })}
                 </div>
 
-                {/* Tab Content */}
                 <div className="p-6">
                     {activeTab === 'violations' && (
                         <ViolationsList
                             pageResults={report.pageResults}
                             showSynergyBadges
+                            issueType="error"
+                        />
+                    )}
+
+                    {activeTab === 'warnings' && (
+                        <ViolationsList
+                            pageResults={report.pageResults}
+                            showSynergyBadges={false}
+                            issueType="warning"
                         />
                     )}
 
@@ -219,6 +265,30 @@ export default function ADADashboard({ report }: ADADashboardProps) {
                     )}
                 </div>
             </div>
+
+            {/* Screenshots */}
+            {report.pageResults.some(r => r.screenshotBase64) && (
+                <div className="bg-white rounded-xl border border-slate-200 p-6">
+                    <h3 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                        <Monitor className="w-4 h-4 text-blue-600" />
+                        Page Screenshots
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {report.pageResults.filter(r => r.screenshotBase64).map(r => (
+                            <div key={r.viewport} className="border border-slate-200 rounded-lg overflow-hidden">
+                                <div className="bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600 border-b border-slate-200">
+                                    {r.viewport === 'desktop' ? '🖥️ Desktop' : '📱 Mobile'} ({r.viewportWidth}×{r.viewportHeight})
+                                </div>
+                                <img
+                                    src={`data:image/jpeg;base64,${r.screenshotBase64}`}
+                                    alt={`${r.viewport} screenshot`}
+                                    className="w-full"
+                                />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -226,8 +296,6 @@ export default function ADADashboard({ report }: ADADashboardProps) {
 // =============================================================================
 // Sub-component: Site Issue Row
 // =============================================================================
-
-import type { ADASiteIssue } from '@/lib/ada/types';
 
 function SiteIssueRow({ issue, showSynergy = false }: { issue: ADASiteIssue; showSynergy?: boolean }) {
     const [expanded, setExpanded] = useState(false);
@@ -237,6 +305,12 @@ function SiteIssueRow({ issue, showSynergy = false }: { issue: ADASiteIssue; sho
         serious: 'bg-orange-100 text-orange-700 border-orange-200',
         moderate: 'bg-amber-100 text-amber-700 border-amber-200',
         minor: 'bg-blue-100 text-blue-700 border-blue-200',
+    };
+
+    const typeColors: Record<string, string> = {
+        error: 'bg-red-50 text-red-700 border-red-200',
+        warning: 'bg-amber-50 text-amber-700 border-amber-200',
+        notice: 'bg-blue-50 text-blue-700 border-blue-200',
     };
 
     return (
@@ -249,6 +323,9 @@ function SiteIssueRow({ issue, showSynergy = false }: { issue: ADASiteIssue; sho
                     ? <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
                     : <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
                 }
+                <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded border ${typeColors[issue.type]}`}>
+                    {issue.type}
+                </span>
                 <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded border ${impactColors[issue.impact]}`}>
                     {issue.impact}
                 </span>
@@ -264,6 +341,13 @@ function SiteIssueRow({ issue, showSynergy = false }: { issue: ADASiteIssue; sho
             {expanded && (
                 <div className="border-t border-slate-100 p-4 bg-slate-50/50 space-y-3">
                     <p className="text-sm text-slate-600">{issue.description}</p>
+
+                    {/* Issue code */}
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono bg-slate-200 text-slate-700 px-2 py-0.5 rounded">
+                            {issue.code}
+                        </span>
+                    </div>
 
                     <div className="flex flex-wrap gap-2">
                         {issue.wcagCriteria.map(c => (

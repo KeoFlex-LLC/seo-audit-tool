@@ -7,7 +7,6 @@ import type { WCAGLevel } from '@/lib/ada/types';
 import { scanPage, closeBrowser } from '@/lib/ada/scanner';
 import { analyzeADA } from '@/lib/ada/analyzer';
 
-// Headless browser rendering needs more time than static crawl
 export const maxDuration = 120;
 
 export async function POST(request: NextRequest) {
@@ -15,7 +14,6 @@ export async function POST(request: NextRequest) {
         const body = await request.json();
         const { url, level } = body;
 
-        // Validate inputs
         if (!url || typeof url !== 'string') {
             return NextResponse.json(
                 { error: 'URL is required' },
@@ -23,9 +21,10 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Validate URL format
+        let normalizedUrl: string;
         try {
-            new URL(url.startsWith('http') ? url : `https://${url}`);
+            const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
+            normalizedUrl = parsed.href;
         } catch {
             return NextResponse.json(
                 { error: 'Invalid URL format' },
@@ -33,35 +32,37 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Validate and default target level
         const targetLevel: WCAGLevel = (level === 'A' || level === 'AA' || level === 'AAA')
             ? level
-            : 'AA'; // Default to AA — the ADA legal standard
+            : 'AA';
 
-        console.log(`[ADA] Starting scan: ${url} at Level ${targetLevel}`);
+        console.log(`[ADA API] Starting scan: ${normalizedUrl} at Level ${targetLevel}`);
 
-        // Run the scan across both viewports
         const pageResults = await scanPage({
-            url: url.trim(),
+            url: normalizedUrl,
             targetLevel,
             includeDesktop: true,
             includeMobile: true,
-            timeout: 30000, // 30s per page
+            includeWarnings: true,
+            includeNotices: false,   // Notices are verbose, off by default
+            screenCapture: true,
+            timeout: 30000,
         });
 
-        // Build the full report
-        const report = analyzeADA(url.trim(), pageResults, targetLevel);
+        const report = analyzeADA(normalizedUrl, pageResults, targetLevel);
 
-        console.log(`[ADA] Scan complete: score=${report.complianceScore}, violations=${report.totalViolations}`);
+        console.log(`[ADA API] Scan complete: score=${report.complianceScore}, grade=${report.grade}, violations=${report.totalViolations}, warnings=${report.totalWarnings}, checks=${report.totalChecksRun}`);
 
-        // Clean up the browser instance
+        if (report.scanErrors.length > 0) {
+            console.warn(`[ADA API] Scan errors: ${report.scanErrors.join('; ')}`);
+        }
+
         await closeBrowser();
 
         return NextResponse.json({ report }, { status: 200 });
     } catch (error) {
-        console.error('[ADA] Scan error:', error);
+        console.error('[ADA API] Critical error:', error);
 
-        // Always try to close the browser on error
         try { await closeBrowser(); } catch { /* ignore */ }
 
         return NextResponse.json(

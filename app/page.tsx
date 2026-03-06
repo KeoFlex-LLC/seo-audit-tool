@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Zap, BarChart3, Shield, Brain, ArrowRight, Globe } from 'lucide-react';
+import { Search, Zap, BarChart3, Shield, Brain, ArrowRight, Globe, Accessibility } from 'lucide-react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -193,6 +194,27 @@ export default function HomePage() {
                 <p className="text-sm text-slate-500 leading-relaxed">{feature.desc}</p>
               </div>
             ))}
+          </div>
+
+          {/* ADA Scanner CTA */}
+          <div className="mt-12 bg-gradient-to-r from-indigo-50 to-violet-50 border border-indigo-200 rounded-2xl p-8 flex flex-col sm:flex-row items-center gap-6">
+            <div className="inline-flex p-3 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 shrink-0">
+              <Accessibility className="w-7 h-7 text-white" />
+            </div>
+            <div className="text-center sm:text-left flex-1">
+              <h3 className="text-lg font-bold text-slate-900 mb-1">ADA / WCAG 2.1 Compliance Scanner</h3>
+              <p className="text-sm text-slate-600 leading-relaxed">
+                Full accessibility audit powered by axe-core. Scans rendered DOM via headless browser for
+                WCAG 2.1 Level A, AA, and AAA violations, warnings, and SEO synergy issues.
+              </p>
+            </div>
+            <Link
+              href="/ada"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-sm transition-all shrink-0 shadow-sm"
+            >
+              <Accessibility className="w-4 h-4" />
+              Run ADA Scan
+            </Link>
           </div>
         </div>
       </section>
