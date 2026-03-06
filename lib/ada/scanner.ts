@@ -1,12 +1,11 @@
 // ============================================================================
-// KeoFlex ADA Compliance Module — Scanner Engine (Playwright + axe-core)
+// KeoFlex ADA Compliance Module — Scanner Engine (Puppeteer + axe-core)
 // ============================================================================
-// Architecture modeled after pa11y: headless browser rendering, multi-runner
-// support, warnings/notices/errors, screen capture, and detailed issue codes.
+// Uses puppeteer-core + @sparticuz/chromium-min for Vercel serverless,
+// with axe-core injected directly into the page for WCAG evaluation.
 // ============================================================================
 
-import { chromium, type Browser } from 'playwright-core';
-import AxeBuilder from '@axe-core/playwright';
+import puppeteer, { type Browser } from 'puppeteer-core';
 import type {
     ADAPageResult,
     ADAViolation,
@@ -111,10 +110,6 @@ function getPourPrinciple(criteria: string[]): POURPrinciple {
     return 'robust';
 }
 
-/**
- * Build a detailed issue code like pa11y's format:
- *   WCAG2AA.1.4.3.color-contrast
- */
 function buildIssueCode(level: WCAGLevel, criteria: string[], ruleId: string): string {
     const prefix = `WCAG2${level}`;
     const criterion = criteria.length > 0 ? criteria[0] : 'best-practice';
@@ -122,17 +117,14 @@ function buildIssueCode(level: WCAGLevel, criteria: string[], ruleId: string): s
 }
 
 // ============================================================================
-// Browser Management
+// Browser Management — Puppeteer + @sparticuz/chromium-min
 // ============================================================================
 
 import chromiumMin from '@sparticuz/chromium-min';
 
-// The CDN URL must match the @sparticuz/chromium-min version (143.0.4)
-// From: https://github.com/Sparticuz/chromium/releases/tag/v143.0.4
+// Official release asset matching @sparticuz/chromium-min v143.0.4
 const CHROMIUM_REMOTE_URL =
     'https://github.com/Sparticuz/chromium/releases/download/v143.0.4/chromium-v143.0.4-pack.x64.tar';
-
-let browserInstance: Browser | null = null;
 
 function isServerless(): boolean {
     return !!(
@@ -142,23 +134,39 @@ function isServerless(): boolean {
     );
 }
 
-async function getBrowser(): Promise<Browser> {
-    if (browserInstance && browserInstance.isConnected()) {
-        return browserInstance;
-    }
-
+async function launchBrowser(): Promise<Browser> {
     console.log(`[ADA Scanner] Launching browser (serverless=${isServerless()})`);
 
     if (isServerless()) {
         const executablePath = await chromiumMin.executablePath(CHROMIUM_REMOTE_URL);
         console.log(`[ADA Scanner] Using chromium-min: ${executablePath}`);
-        browserInstance = await chromium.launch({
+        return puppeteer.launch({
             executablePath,
             headless: true,
             args: chromiumMin.args,
+            defaultViewport: null,
         });
     } else {
-        browserInstance = await chromium.launch({
+        // Local dev — try to find Chrome/Chromium on the system
+        const possiblePaths = [
+            '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+            '/usr/bin/google-chrome',
+            '/usr/bin/chromium-browser',
+            '/usr/bin/chromium',
+        ];
+        let localChrome = '';
+        for (const p of possiblePaths) {
+            try {
+                const fs = await import('fs');
+                if (fs.existsSync(p)) { localChrome = p; break; }
+            } catch { /* ignore */ }
+        }
+        if (!localChrome) {
+            throw new Error('No Chrome/Chromium found locally. Install Google Chrome or set CHROME_PATH.');
+        }
+        console.log(`[ADA Scanner] Using local Chrome: ${localChrome}`);
+        return puppeteer.launch({
+            executablePath: localChrome,
             headless: true,
             args: [
                 '--no-sandbox',
@@ -166,34 +174,52 @@ async function getBrowser(): Promise<Browser> {
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
             ],
+            defaultViewport: null,
         });
     }
-
-    console.log('[ADA Scanner] Browser launched successfully');
-    return browserInstance;
 }
 
-export async function closeBrowser(): Promise<void> {
-    if (browserInstance) {
-        try {
-            await browserInstance.close();
-        } catch (e) {
+export async function closeBrowser(browser: Browser | null): Promise<void> {
+    if (browser) {
+        try { await browser.close(); } catch (e) {
             console.warn('[ADA Scanner] Error closing browser:', e);
         }
-        browserInstance = null;
     }
+}
+
+// ============================================================================
+// axe-core source (read once, inject into each page)
+// ============================================================================
+
+let axeSource: string | null = null;
+
+async function getAxeSource(): Promise<string> {
+    if (axeSource) return axeSource;
+    const axeCorePath = require.resolve('axe-core');
+    const fs = await import('fs');
+    const path = await import('path');
+    // axe.min.js is in the same directory as axe-core's main entry
+    const axeDir = path.dirname(axeCorePath);
+    const minPath = path.join(axeDir, 'axe.min.js');
+    axeSource = fs.existsSync(minPath)
+        ? fs.readFileSync(minPath, 'utf-8')
+        : fs.readFileSync(axeCorePath, 'utf-8');
+    console.log(`[ADA Scanner] Loaded axe-core source (${(axeSource.length / 1024).toFixed(0)}KB)`);
+    return axeSource;
 }
 
 // ============================================================================
 // Node Mapping
 // ============================================================================
 
-function mapNodes(nodes: Array<{
+interface AxeNode {
     html: string;
     target: Array<string | string[]>;
     failureSummary?: string;
     xpath?: Array<string | string[]>;
-}>): ADAViolationNode[] {
+}
+
+function mapNodes(nodes: AxeNode[]): ADAViolationNode[] {
     return nodes.map(n => ({
         html: n.html,
         target: n.target.map(t => (typeof t === 'string' ? t : String(t))),
@@ -218,39 +244,57 @@ const VIEWPORTS: ViewportSpec[] = [
     { name: 'mobile', width: 375, height: 812, isMobile: true },
 ];
 
+interface AxeResult {
+    id: string;
+    impact: string | null;
+    tags: string[];
+    description: string;
+    help: string;
+    helpUrl: string;
+    nodes: AxeNode[];
+}
+
+interface AxeResults {
+    violations: AxeResult[];
+    passes: AxeResult[];
+    incomplete: AxeResult[];
+    inapplicable: AxeResult[];
+}
+
 async function scanPageAtViewport(
+    browser: Browser,
     url: string,
     viewport: ViewportSpec,
     config: ADAScanConfig,
 ): Promise<ADAPageResult> {
     const start = Date.now();
-
-    // CRITICAL: getBrowser() must NOT be caught silently.
-    // If it throws, the caller must know the scan failed.
-    const browser = await getBrowser();
-
-    const context = await browser.newContext({
-        viewport: { width: viewport.width, height: viewport.height },
-        isMobile: viewport.isMobile,
-        userAgent: viewport.isMobile
-            ? 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15'
-            : 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        ignoreHTTPSErrors: true,
-    });
-
-    const page = await context.newPage();
+    const page = await browser.newPage();
 
     try {
+        // Set viewport
+        await page.setViewport({
+            width: viewport.width,
+            height: viewport.height,
+            isMobile: viewport.isMobile,
+            hasTouch: viewport.isMobile,
+        });
+
+        // Set user agent
+        if (viewport.isMobile) {
+            await page.setUserAgent(
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15'
+            );
+        }
+
         console.log(`[ADA Scanner] Navigating to ${url} (${viewport.name} ${viewport.width}x${viewport.height})`);
 
-        // Navigate with timeout
         const response = await page.goto(url, {
             waitUntil: 'load',
             timeout: config.timeout,
         });
 
         if (!response) {
-            throw new Error(`Failed to load page: no response received from ${url}`);
+            throw new Error(`Failed to load page: no response from ${url}`);
         }
 
         const statusCode = response.status();
@@ -260,15 +304,15 @@ async function scanPageAtViewport(
             throw new Error(`Page returned HTTP ${statusCode}`);
         }
 
-        // Wait for dynamic content to settle
-        await page.waitForTimeout(2000);
+        // Wait for dynamic content
+        await new Promise(r => setTimeout(r, 2000));
 
-        // Take screenshot if configured
+        // Screenshot
         let screenshotBase64: string | undefined;
         if (config.screenCapture) {
             try {
-                const buf = await page.screenshot({ fullPage: false, type: 'jpeg', quality: 60 });
-                screenshotBase64 = buf.toString('base64');
+                const buf = await page.screenshot({ type: 'jpeg', quality: 60 });
+                screenshotBase64 = Buffer.from(buf).toString('base64');
             } catch (e) {
                 console.warn('[ADA Scanner] Screenshot failed:', e);
             }
@@ -284,118 +328,101 @@ async function scanPageAtViewport(
         }
         wcagTags.push('best-practice');
 
-        console.log(`[ADA Scanner] Running axe-core with tags: ${wcagTags.join(', ')}`);
+        console.log(`[ADA Scanner] Injecting axe-core and running analysis...`);
 
-        // Run axe-core analysis
-        const axeResults = await new AxeBuilder({ page })
-            .withTags(wcagTags)
-            .analyze();
+        // Inject axe-core into the page
+        const axeSrc = await getAxeSource();
+        await page.evaluate(axeSrc);
 
-        console.log(`[ADA Scanner] axe-core results: violations=${axeResults.violations.length}, passes=${axeResults.passes.length}, incomplete=${axeResults.incomplete.length}, inapplicable=${axeResults.inapplicable.length}`);
+        // Run axe-core analysis inside the browser
+        const axeResults: AxeResults = await page.evaluate((tags: string[]) => {
+            return new Promise<AxeResults>((resolve, reject) => {
+                // @ts-expect-error axe is injected globally
+                if (typeof axe === 'undefined') {
+                    reject(new Error('axe-core not loaded'));
+                    return;
+                }
+                // @ts-expect-error axe is injected globally
+                axe.run(document, {
+                    runOnly: { type: 'tag', values: tags },
+                    resultTypes: ['violations', 'passes', 'incomplete', 'inapplicable'],
+                }).then(resolve).catch(reject);
+            });
+        }, wcagTags) as AxeResults;
 
-        // --- Map VIOLATIONS (errors) ---
+        console.log(`[ADA Scanner] axe-core results: violations=${axeResults.violations.length}, passes=${axeResults.passes.length}, incomplete=${axeResults.incomplete.length}`);
+
+        // Map violations (errors)
         const violations: ADAViolation[] = axeResults.violations.map(v => {
             const wcagCriteria = extractWcagCriteria(v.tags);
             const wcagLevel = extractWcagLevel(v.tags);
             const pourPrinciple = getPourPrinciple(wcagCriteria);
             const seoSynergy = v.id in SEO_SYNERGY_MAP;
-
             return {
                 id: v.id,
                 impact: (v.impact as ViolationImpact) || 'moderate',
                 type: 'error' as IssueType,
                 code: buildIssueCode(wcagLevel, wcagCriteria, v.id),
-                wcagCriteria,
-                wcagLevel,
-                pourPrinciple,
-                description: v.description,
-                help: v.help,
-                helpUrl: v.helpUrl,
+                wcagCriteria, wcagLevel, pourPrinciple,
+                description: v.description, help: v.help, helpUrl: v.helpUrl,
                 seoSynergy,
                 seoSynergyNote: seoSynergy ? SEO_SYNERGY_MAP[v.id] : undefined,
                 nodes: mapNodes(v.nodes),
             };
         });
 
-        // --- Map INCOMPLETE items (warnings — need manual review) ---
+        // Map incomplete (warnings)
         const warnings: ADAViolation[] = [];
         const incomplete: ADAIncompleteItem[] = [];
-
         for (const item of axeResults.incomplete) {
             const wcagCriteria = extractWcagCriteria(item.tags);
             const pourPrinciple = getPourPrinciple(wcagCriteria);
             const wcagLevel = extractWcagLevel(item.tags);
-
-            // Add to warnings list for display
             if (config.includeWarnings) {
                 warnings.push({
                     id: item.id,
                     impact: (item.impact as ViolationImpact) || 'moderate',
                     type: 'warning',
                     code: buildIssueCode(wcagLevel, wcagCriteria, item.id),
-                    wcagCriteria,
-                    wcagLevel,
-                    pourPrinciple,
-                    description: item.description,
-                    help: item.help,
-                    helpUrl: item.helpUrl,
+                    wcagCriteria, wcagLevel, pourPrinciple,
+                    description: item.description, help: item.help, helpUrl: item.helpUrl,
                     seoSynergy: item.id in SEO_SYNERGY_MAP,
                     seoSynergyNote: item.id in SEO_SYNERGY_MAP ? SEO_SYNERGY_MAP[item.id] : undefined,
                     nodes: mapNodes(item.nodes),
                 });
             }
-
             incomplete.push({
-                id: item.id,
-                description: item.description,
-                help: item.help,
+                id: item.id, description: item.description, help: item.help,
                 helpUrl: item.helpUrl,
                 impact: (item.impact as ViolationImpact) || null,
-                nodes: mapNodes(item.nodes),
-                wcagCriteria,
-                pourPrinciple,
+                nodes: mapNodes(item.nodes), wcagCriteria, pourPrinciple,
             });
         }
 
-        // --- Map PASSES as notices (informational) ---
+        // Map passes as notices
         const notices: ADAViolation[] = [];
         if (config.includeNotices) {
             for (const pass of axeResults.passes) {
                 const wcagCriteria = extractWcagCriteria(pass.tags);
                 const wcagLevel = extractWcagLevel(pass.tags);
-                const pourPrinciple = getPourPrinciple(wcagCriteria);
-
                 notices.push({
-                    id: pass.id,
-                    impact: 'minor',
-                    type: 'notice',
+                    id: pass.id, impact: 'minor', type: 'notice',
                     code: buildIssueCode(wcagLevel, wcagCriteria, pass.id),
-                    wcagCriteria,
-                    wcagLevel,
-                    pourPrinciple,
-                    description: pass.description,
-                    help: `✓ ${pass.help}`,
-                    helpUrl: pass.helpUrl,
-                    seoSynergy: false,
-                    nodes: [],
+                    wcagCriteria, wcagLevel,
+                    pourPrinciple: getPourPrinciple(wcagCriteria),
+                    description: pass.description, help: `✓ ${pass.help}`,
+                    helpUrl: pass.helpUrl, seoSynergy: false, nodes: [],
                 });
             }
         }
 
-        const totalChecks = axeResults.violations.length
-            + axeResults.passes.length
-            + axeResults.incomplete.length
-            + axeResults.inapplicable.length;
+        const totalChecks = axeResults.violations.length + axeResults.passes.length
+            + axeResults.incomplete.length + axeResults.inapplicable.length;
 
         return {
-            url,
-            viewport: viewport.name,
-            viewportWidth: viewport.width,
-            viewportHeight: viewport.height,
-            violations,
-            warnings,
-            notices,
-            incomplete,
+            url, viewport: viewport.name,
+            viewportWidth: viewport.width, viewportHeight: viewport.height,
+            violations, warnings, notices, incomplete,
             passCount: axeResults.passes.length,
             inapplicableCount: axeResults.inapplicable.length,
             totalChecksRun: totalChecks,
@@ -406,39 +433,25 @@ async function scanPageAtViewport(
     } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         console.error(`[ADA Scanner] Scan failed for ${url} at ${viewport.name}:`, errorMsg);
-
-        // Return a result struct with the error — DON'T silently return 0/0
         return {
-            url,
-            viewport: viewport.name,
-            viewportWidth: viewport.width,
-            viewportHeight: viewport.height,
-            violations: [],
-            warnings: [],
-            notices: [],
-            incomplete: [],
-            passCount: 0,
-            inapplicableCount: 0,
-            totalChecksRun: 0,
-            scanDurationMs: Date.now() - start,
-            scannedAt: Date.now(),
+            url, viewport: viewport.name,
+            viewportWidth: viewport.width, viewportHeight: viewport.height,
+            violations: [], warnings: [], notices: [], incomplete: [],
+            passCount: 0, inapplicableCount: 0, totalChecksRun: 0,
+            scanDurationMs: Date.now() - start, scannedAt: Date.now(),
             scanError: errorMsg,
         };
     } finally {
-        await context.close();
+        await page.close();
     }
 }
 
 /**
  * Run a full ADA compliance scan on a URL across multiple viewports.
- * Unlike the previous version, this bubbles up errors properly.
  */
 export async function scanPage(config: ADAScanConfig): Promise<ADAPageResult[]> {
     const results: ADAPageResult[] = [];
-
-    const url = config.url.startsWith('http')
-        ? config.url
-        : `https://${config.url}`;
+    const url = config.url.startsWith('http') ? config.url : `https://${config.url}`;
 
     const viewportsToScan = VIEWPORTS.filter(v => {
         if (v.name === 'desktop' && !config.includeDesktop) return false;
@@ -448,16 +461,21 @@ export async function scanPage(config: ADAScanConfig): Promise<ADAPageResult[]> 
 
     console.log(`[ADA Scanner] Starting scan of ${url} across ${viewportsToScan.length} viewport(s)`);
 
-    for (const viewport of viewportsToScan) {
-        const result = await scanPageAtViewport(url, viewport, config);
-        results.push(result);
+    // Launch a fresh browser for each scan (no sharing in serverless)
+    const browser = await launchBrowser();
 
-        // Log summary per viewport
-        if (result.scanError) {
-            console.error(`[ADA Scanner] ${viewport.name}: FAILED — ${result.scanError}`);
-        } else {
-            console.log(`[ADA Scanner] ${viewport.name}: ${result.violations.length} violations, ${result.passCount} passes, ${result.incomplete.length} incomplete, ${result.totalChecksRun} total checks`);
+    try {
+        for (const viewport of viewportsToScan) {
+            const result = await scanPageAtViewport(browser, url, viewport, config);
+            results.push(result);
+            if (result.scanError) {
+                console.error(`[ADA Scanner] ${viewport.name}: FAILED — ${result.scanError}`);
+            } else {
+                console.log(`[ADA Scanner] ${viewport.name}: ${result.violations.length} violations, ${result.passCount} passes, ${result.incomplete.length} incomplete`);
+            }
         }
+    } finally {
+        await closeBrowser(browser);
     }
 
     return results;

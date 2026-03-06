@@ -9,7 +9,6 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@axe-core/playwright": "^4.11.1",
     "@google/generative-ai": "^0.24.1",
     "@sparticuz/chromium-min": "^143.0.4",
     "axe-core": "^4.11.1",
@@ -18,7 +17,7 @@
     "clsx": "^2.1.1",
     "lucide-react": "^0.563.0",
     "next": "16.1.6",
-    "playwright-core": "^1.58.2",
+    "puppeteer-core": "^24.38.0",
     "radix-ui": "^1.4.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",

@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import type { WCAGLevel } from '@/lib/ada/types';
-import { scanPage, closeBrowser } from '@/lib/ada/scanner';
+import { scanPage } from '@/lib/ada/scanner';
 import { analyzeADA } from '@/lib/ada/analyzer';
 
 export const maxDuration = 120;
@@ -38,13 +38,14 @@ export async function POST(request: NextRequest) {
 
         console.log(`[ADA API] Starting scan: ${normalizedUrl} at Level ${targetLevel}`);
 
+        // scanPage manages its own browser lifecycle (launch + close)
         const pageResults = await scanPage({
             url: normalizedUrl,
             targetLevel,
             includeDesktop: true,
             includeMobile: true,
             includeWarnings: true,
-            includeNotices: false,   // Notices are verbose, off by default
+            includeNotices: false,
             screenCapture: true,
             timeout: 30000,
         });
@@ -57,13 +58,9 @@ export async function POST(request: NextRequest) {
             console.warn(`[ADA API] Scan errors: ${report.scanErrors.join('; ')}`);
         }
 
-        await closeBrowser();
-
         return NextResponse.json({ report }, { status: 200 });
     } catch (error) {
         console.error('[ADA API] Critical error:', error);
-
-        try { await closeBrowser(); } catch { /* ignore */ }
 
         return NextResponse.json(
             { error: error instanceof Error ? error.message : 'ADA scan failed' },
