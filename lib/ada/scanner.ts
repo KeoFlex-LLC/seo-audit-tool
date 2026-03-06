@@ -125,7 +125,11 @@ function buildIssueCode(level: WCAGLevel, criteria: string[], ruleId: string): s
 // Browser Management
 // ============================================================================
 
-import sparticuzChromium from '@sparticuz/chromium';
+import chromiumMin from '@sparticuz/chromium-min';
+
+// The CDN URL must match the @sparticuz/chromium-min version (143.0.4)
+const CHROMIUM_REMOTE_URL =
+    'https://github.com/nichochar/chromium-brotli/releases/download/v143.0.0/chromium-v143.0.0-pack.tar';
 
 let browserInstance: Browser | null = null;
 
@@ -145,12 +149,12 @@ async function getBrowser(): Promise<Browser> {
     console.log(`[ADA Scanner] Launching browser (serverless=${isServerless()})`);
 
     if (isServerless()) {
-        const executablePath = await sparticuzChromium.executablePath();
-        console.log(`[ADA Scanner] Using sparticuz chromium: ${executablePath}`);
+        const executablePath = await chromiumMin.executablePath(CHROMIUM_REMOTE_URL);
+        console.log(`[ADA Scanner] Using chromium-min: ${executablePath}`);
         browserInstance = await chromium.launch({
             executablePath,
             headless: true,
-            args: sparticuzChromium.args,
+            args: chromiumMin.args,
         });
     } else {
         browserInstance = await chromium.launch({

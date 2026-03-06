@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
   // These must be loaded at runtime, not bundled into serverless functions
   serverExternalPackages: [
     'playwright-core',
-    '@sparticuz/chromium',
+    '@sparticuz/chromium-min',
     '@axe-core/playwright',
   ],
 };
