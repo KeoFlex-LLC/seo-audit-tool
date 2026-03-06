@@ -13,9 +13,12 @@ import {
     Search,
     BarChart3,
     FileText,
+    Accessibility,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { AuditJob } from '@/lib/types';
+import type { ADAReport } from '@/lib/ada/types';
+import ADADashboard from '@/components/ada/ADADashboard';
 import HealthScoreGauge from '@/components/HealthScoreGauge';
 import CoreVitalsCard from '@/components/CoreVitalsCard';
 import TechnicalIssuesList from '@/components/TechnicalIssuesList';
@@ -40,6 +43,33 @@ interface AuditDashboardProps {
 export default function AuditDashboard({ job }: AuditDashboardProps) {
     const [activeTab, setActiveTab] = useState('overview');
     const report = job.report!;
+
+    // ADA scan state
+    const [adaReport, setAdaReport] = useState<ADAReport | null>(report.adaReport || null);
+    const [adaLoading, setAdaLoading] = useState(false);
+    const [adaError, setAdaError] = useState('');
+
+    async function runAdaScan() {
+        setAdaLoading(true);
+        setAdaError('');
+        try {
+            const res = await fetch('/api/ada', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: report.url, level: 'AA' }),
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || 'ADA scan failed');
+            }
+            const { report: adaResult } = await res.json();
+            setAdaReport(adaResult);
+        } catch (err) {
+            setAdaError(err instanceof Error ? err.message : 'ADA scan failed');
+        } finally {
+            setAdaLoading(false);
+        }
+    }
 
     return (
         <div className="min-h-screen bg-slate-50">
@@ -116,6 +146,13 @@ export default function AuditDashboard({ job }: AuditDashboardProps) {
                         >
                             <FileText className="w-4 h-4" />
                             AI Prompt
+                        </TabsTrigger>
+                        <TabsTrigger
+                            value="ada"
+                            className="data-[state=active]:bg-indigo-600 data-[state=active]:text-white rounded-lg px-4 py-2 text-sm font-medium gap-2"
+                        >
+                            <Accessibility className="w-4 h-4" />
+                            ADA Compliance
                         </TabsTrigger>
                     </TabsList>
 
@@ -362,6 +399,53 @@ export default function AuditDashboard({ job }: AuditDashboardProps) {
                     {/* AI Prompt Tab */}
                     <TabsContent value="prompt">
                         <PromptGeneratorCard report={report} />
+                    </TabsContent>
+
+                    {/* ADA Compliance Tab */}
+                    <TabsContent value="ada">
+                        {adaReport ? (
+                            <ADADashboard report={adaReport} />
+                        ) : (
+                            <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+                                <div className="inline-flex p-4 rounded-2xl bg-indigo-50 mb-6">
+                                    <Accessibility className="w-10 h-10 text-indigo-600" />
+                                </div>
+                                <h3 className="text-xl font-bold text-slate-900 mb-2">
+                                    ADA / WCAG 2.1 Compliance Scan
+                                </h3>
+                                <p className="text-sm text-slate-500 max-w-md mx-auto mb-6 leading-relaxed">
+                                    Run a full accessibility audit against WCAG 2.1 Level AA standards.
+                                    Uses headless browser rendering + axe-core engine to evaluate
+                                    the fully rendered DOM including JavaScript-injected content.
+                                </p>
+                                {adaError && (
+                                    <p className="text-sm text-red-600 mb-4">{adaError}</p>
+                                )}
+                                <button
+                                    onClick={runAdaScan}
+                                    disabled={adaLoading}
+                                    className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-sm transition-all duration-200 disabled:opacity-60 disabled:cursor-wait shadow-sm"
+                                >
+                                    {adaLoading ? (
+                                        <>
+                                            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                            </svg>
+                                            Scanning with Headless Browser...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Accessibility className="w-4 h-4" />
+                                            Run ADA Compliance Scan
+                                        </>
+                                    )}
+                                </button>
+                                <p className="text-xs text-slate-400 mt-4">
+                                    Scans desktop (1280px) and mobile (375px) viewports · Takes 15-30 seconds
+                                </p>
+                            </div>
+                        )}
                     </TabsContent>
                 </Tabs>
             </main>

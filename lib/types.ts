@@ -329,4 +329,5 @@ export interface AuditReport {
   competitors: CompetitorData[];
   gapAnalyses: GapAnalysis[];
   aiRecommendations: AIRecommendation[];
+  adaReport?: import('./ada/types').ADAReport;
 }
