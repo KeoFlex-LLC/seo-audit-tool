@@ -126,26 +126,57 @@ function getPourPrinciple(criteria: string[]): POURPrinciple {
 // ============================================================================
 // Browser Management
 // ============================================================================
+// On Vercel/serverless: uses @sparticuz/chromium (compressed binary, ~50MB)
+// Locally: uses standard Playwright Chromium from cache (~400MB)
+// ============================================================================
+
+import sparticuzChromium from '@sparticuz/chromium';
 
 let browserInstance: Browser | null = null;
 
 /**
+ * Detect if we're running in a serverless environment (Vercel, AWS Lambda, etc.)
+ */
+function isServerless(): boolean {
+    return !!(
+        process.env.VERCEL ||
+        process.env.AWS_LAMBDA_FUNCTION_NAME ||
+        process.env.NETLIFY
+    );
+}
+
+/**
  * Get or launch a shared Chromium browser instance.
+ * Automatically selects the right binary for the environment.
  */
 async function getBrowser(): Promise<Browser> {
     if (browserInstance && browserInstance.isConnected()) {
         return browserInstance;
     }
-    browserInstance = await chromium.launch({
-        headless: true,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--disable-web-security',
-        ],
-    });
+
+    if (isServerless()) {
+        // --- Vercel / Serverless ---
+        // Use @sparticuz/chromium's compressed binary
+        const executablePath = await sparticuzChromium.executablePath();
+        browserInstance = await chromium.launch({
+            executablePath,
+            headless: true,
+            args: sparticuzChromium.args,
+        });
+    } else {
+        // --- Local Development ---
+        // Use standard Playwright Chromium from cache
+        browserInstance = await chromium.launch({
+            headless: true,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+            ],
+        });
+    }
+
     return browserInstance;
 }
 
