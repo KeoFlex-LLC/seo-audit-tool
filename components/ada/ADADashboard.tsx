@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
     Shield,
     AlertTriangle,
@@ -19,6 +19,10 @@ import {
     CheckCircle,
     XCircle,
     Monitor,
+    FileText,
+    Map,
+    Target,
+    BarChart3,
 } from 'lucide-react';
 import type { ADAReport, ADASiteIssue, IssueType } from '@/lib/ada/types';
 import ComplianceGauge from './ComplianceGauge';
@@ -26,6 +30,10 @@ import ViolationsList from './ViolationsList';
 import RemediationPanel from './RemediationPanel';
 import SynergyBadge from './SynergyBadge';
 import LegalDisclaimer from './LegalDisclaimer';
+import PageBreakdown from './PageBreakdown';
+import PriorityMatrix from './PriorityMatrix';
+import ComplianceRoadmap from './ComplianceRoadmap';
+import ExportButton from './ExportButton';
 
 interface ADADashboardProps {
     report: ADAReport;
@@ -45,22 +53,68 @@ const POUR_COLORS = {
     robust: { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', icon: 'text-amber-600' },
 };
 
-type TabId = 'violations' | 'warnings' | 'site-issues' | 'synergy';
+type TabId = 'pages' | 'violations' | 'warnings' | 'site-issues' | 'synergy' | 'matrix' | 'roadmap';
+
+// Animated counter hook
+function useCountUp(target: number, duration = 800): number {
+    const [current, setCurrent] = useState(0);
+    useEffect(() => {
+        if (target === 0) { setCurrent(0); return; }
+        const start = performance.now();
+        const step = (now: number) => {
+            const elapsed = now - start;
+            const progress = Math.min(elapsed / duration, 1);
+            // ease-out
+            const eased = 1 - Math.pow(1 - progress, 3);
+            setCurrent(Math.round(eased * target));
+            if (progress < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+    }, [target, duration]);
+    return current;
+}
 
 export default function ADADashboard({ report }: ADADashboardProps) {
-    const [activeTab, setActiveTab] = useState<TabId>('violations');
+    const [activeTab, setActiveTab] = useState<TabId>('pages');
 
     const synergyViolations = report.siteIssues.filter(i => i.seoSynergy);
 
+    // Count unique pages
+    const uniquePages = useMemo(() => {
+        const urls = new Set(report.pageResults.map(r => r.url));
+        return urls.size;
+    }, [report.pageResults]);
+
+    // Animated stats
+    const animErrors = useCountUp(report.totalViolations);
+    const animWarnings = useCountUp(report.totalWarnings);
+    const animChecks = useCountUp(report.totalChecksRun);
+
     const tabs: { id: TabId; label: string; count: number; icon: typeof AlertOctagon }[] = [
+        { id: 'pages', label: 'Pages', count: uniquePages, icon: FileText },
         { id: 'violations', label: 'Errors', count: report.totalViolations, icon: XCircle },
         { id: 'warnings', label: 'Warnings', count: report.totalWarnings, icon: AlertTriangle },
-        { id: 'site-issues', label: 'Site-Wide Issues', count: report.siteIssues.length, icon: AlertCircle },
+        { id: 'site-issues', label: 'Site-Wide', count: report.siteIssues.length, icon: AlertCircle },
         { id: 'synergy', label: 'SEO Synergy', count: synergyViolations.length, icon: Zap },
+        { id: 'matrix', label: 'Priority', count: 0, icon: Target },
+        { id: 'roadmap', label: 'Roadmap', count: 0, icon: Map },
     ];
 
     return (
         <div className="space-y-6">
+            {/* Header row with export */}
+            <div className="flex items-center justify-between">
+                <div>
+                    <h2 className="text-lg font-semibold text-slate-900">
+                        Compliance Report
+                    </h2>
+                    <p className="text-sm text-slate-500">
+                        {uniquePages} page{uniquePages !== 1 ? 's' : ''} scanned · {(report.scanDurationMs / 1000).toFixed(1)}s
+                    </p>
+                </div>
+                <ExportButton report={report} />
+            </div>
+
             {/* Scan Errors Banner */}
             {report.scanErrors.length > 0 && (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-4">
@@ -80,12 +134,13 @@ export default function ADADashboard({ report }: ADADashboardProps) {
             <LegalDisclaimer text={report.legalDisclaimer} />
 
             {/* Summary Stats Bar */}
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
                 {[
-                    { label: 'Errors', value: report.totalViolations, color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200' },
-                    { label: 'Warnings', value: report.totalWarnings, color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' },
+                    { label: 'Pages', value: uniquePages, color: 'text-violet-700', bg: 'bg-violet-50', border: 'border-violet-200' },
+                    { label: 'Errors', value: animErrors, color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200' },
+                    { label: 'Warnings', value: animWarnings, color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' },
                     { label: 'Manual Review', value: report.totalIncomplete, color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-200' },
-                    { label: 'Checks Run', value: report.totalChecksRun, color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200' },
+                    { label: 'Checks Run', value: animChecks, color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200' },
                     { label: 'SEO Synergy', value: synergyViolations.length, color: 'text-indigo-700', bg: 'bg-indigo-50', border: 'border-indigo-200' },
                 ].map(stat => (
                     <div key={stat.label} className={`${stat.bg} ${stat.border} border rounded-xl p-3 text-center`}>
@@ -103,9 +158,6 @@ export default function ADADashboard({ report }: ADADashboardProps) {
                         grade={report.grade}
                         targetLevel={report.targetLevel}
                     />
-                    <p className="text-xs text-slate-400 mt-2">
-                        Scanned in {(report.scanDurationMs / 1000).toFixed(1)}s
-                    </p>
                 </div>
 
                 {/* Severity Breakdown */}
@@ -131,7 +183,7 @@ export default function ADADashboard({ report }: ADADashboardProps) {
                                     </div>
                                     <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                                         <div
-                                            className={`h-full rounded-full ${item.color} transition-all duration-500`}
+                                            className={`h-full rounded-full ${item.color} transition-all duration-700`}
                                             style={{ width: `${pct}%` }}
                                         />
                                     </div>
@@ -178,29 +230,32 @@ export default function ADADashboard({ report }: ADADashboardProps) {
 
             {/* Tab Navigation */}
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                <div className="flex border-b border-slate-200">
+                <div className="flex overflow-x-auto border-b border-slate-200">
                     {tabs.map(tab => {
                         const TabIcon = tab.icon;
+                        const showCount = tab.id !== 'matrix' && tab.id !== 'roadmap';
                         return (
                             <button
                                 key={tab.id}
                                 onClick={() => setActiveTab(tab.id)}
-                                className={`flex-1 px-4 py-3 text-sm font-medium transition-colors relative ${activeTab === tab.id
-                                        ? 'text-indigo-700 bg-indigo-50/50'
-                                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                                className={`flex-shrink-0 px-4 py-3 text-sm font-medium transition-colors relative ${activeTab === tab.id
+                                    ? 'text-indigo-700 bg-indigo-50/50'
+                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
                                     }`}
                             >
                                 <span className="flex items-center justify-center gap-2">
                                     <TabIcon className="w-3.5 h-3.5" />
-                                    {tab.label}
-                                    <span
-                                        className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-bold ${activeTab === tab.id
+                                    <span className="hidden sm:inline">{tab.label}</span>
+                                    {showCount && (
+                                        <span
+                                            className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-bold ${activeTab === tab.id
                                                 ? tab.count > 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
                                                 : 'bg-slate-100 text-slate-500'
-                                            }`}
-                                    >
-                                        {tab.count}
-                                    </span>
+                                                }`}
+                                        >
+                                            {tab.count}
+                                        </span>
+                                    )}
                                 </span>
                                 {activeTab === tab.id && (
                                     <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" />
@@ -211,6 +266,10 @@ export default function ADADashboard({ report }: ADADashboardProps) {
                 </div>
 
                 <div className="p-6">
+                    {activeTab === 'pages' && (
+                        <PageBreakdown pageResults={report.pageResults} />
+                    )}
+
                     {activeTab === 'violations' && (
                         <ViolationsList
                             pageResults={report.pageResults}
@@ -263,6 +322,18 @@ export default function ADADashboard({ report }: ADADashboardProps) {
                             )}
                         </div>
                     )}
+
+                    {activeTab === 'matrix' && (
+                        <PriorityMatrix siteIssues={report.siteIssues} />
+                    )}
+
+                    {activeTab === 'roadmap' && (
+                        <ComplianceRoadmap
+                            siteIssues={report.siteIssues}
+                            complianceScore={report.complianceScore}
+                            targetLevel={report.targetLevel}
+                        />
+                    )}
                 </div>
             </div>
 
@@ -274,14 +345,14 @@ export default function ADADashboard({ report }: ADADashboardProps) {
                         Page Screenshots
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {report.pageResults.filter(r => r.screenshotBase64).map(r => (
-                            <div key={r.viewport} className="border border-slate-200 rounded-lg overflow-hidden">
-                                <div className="bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600 border-b border-slate-200">
-                                    {r.viewport === 'desktop' ? '🖥️ Desktop' : '📱 Mobile'} ({r.viewportWidth}×{r.viewportHeight})
+                        {report.pageResults.filter(r => r.screenshotBase64).map((r, idx) => (
+                            <div key={`${r.url}-${r.viewport}-${idx}`} className="border border-slate-200 rounded-lg overflow-hidden">
+                                <div className="bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600 border-b border-slate-200 truncate">
+                                    {r.viewport === 'desktop' ? '🖥️' : '📱'} {r.viewport} · {new URL(r.url).pathname}
                                 </div>
                                 <img
                                     src={`data:image/jpeg;base64,${r.screenshotBase64}`}
-                                    alt={`${r.viewport} screenshot`}
+                                    alt={`${r.viewport} screenshot of ${r.url}`}
                                     className="w-full"
                                 />
                             </div>
@@ -342,7 +413,6 @@ function SiteIssueRow({ issue, showSynergy = false }: { issue: ADASiteIssue; sho
                 <div className="border-t border-slate-100 p-4 bg-slate-50/50 space-y-3">
                     <p className="text-sm text-slate-600">{issue.description}</p>
 
-                    {/* Issue code */}
                     <div className="flex items-center gap-2">
                         <span className="text-xs font-mono bg-slate-200 text-slate-700 px-2 py-0.5 rounded">
                             {issue.code}
